@@ -116,7 +116,7 @@ func (p *Plugin) ServeDNS(ctx context.Context, request *DNSRequest) (*DNSRespons
 	reqCtx := p.extractRequestContext(request)
 
 	// Parse the DNS query to get target namespace
-	service, targetNs, ok := ParseDNSQuery(request.Question.Name, "cluster.local")
+	service, targetNs, ok := ParseDNSQuery(request.Question.Name, p.config.ClusterDomain)
 	if ok {
 		reqCtx.TargetNamespace = targetNs
 		reqCtx.TargetService = service

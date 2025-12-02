@@ -5,6 +5,7 @@ package coredns
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -33,6 +34,11 @@ func ParseConfig(options map[string]string) (*Config, error) {
 		case "tenant_label", "tenantlabel", "tenant_label_key":
 			if value != "" {
 				config.TenantLabelKey = value
+			}
+
+		case "cluster_domain", "clusterdomain":
+			if value != "" {
+				config.ClusterDomain = value
 			}
 
 		default:
@@ -101,6 +107,13 @@ func (b *ConfigBuilder) WithTenantLabelKey(key string) *ConfigBuilder {
 	return b
 }
 
+// WithClusterDomain sets the cluster domain.
+func (b *ConfigBuilder) WithClusterDomain(domain string) *ConfigBuilder {
+	b.config.ClusterDomain = domain
+
+	return b
+}
+
 // Build returns the configured Config.
 func (b *ConfigBuilder) Build() *Config {
 	return b.config
@@ -116,11 +129,22 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("tenant label key cannot be empty")
 	}
 
+	if c.ClusterDomain == "" {
+		return fmt.Errorf("cluster domain cannot be empty")
+	}
+
+	// Validate whitelist patterns
+	for _, pattern := range c.WhitelistedNamespaces {
+		if _, err := filepath.Match(pattern, "test"); err != nil {
+			return fmt.Errorf("invalid whitelist pattern %q: %w", pattern, err)
+		}
+	}
+
 	return nil
 }
 
 // String returns a human-readable representation of the config.
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{IsolationMode: %s, WhitelistedNamespaces: %v, TenantLabelKey: %s}",
-		c.IsolationMode, c.WhitelistedNamespaces, c.TenantLabelKey)
+	return fmt.Sprintf("Config{IsolationMode: %s, WhitelistedNamespaces: %v, TenantLabelKey: %s, ClusterDomain: %s}",
+		c.IsolationMode, c.WhitelistedNamespaces, c.TenantLabelKey, c.ClusterDomain)
 }

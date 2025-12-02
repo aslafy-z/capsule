@@ -18,6 +18,7 @@ The plugin supports the following configuration options:
 | `isolation_mode` | Mode of isolation: `tenant` or `namespace` | `tenant` |
 | `whitelist` | Comma or space-separated list of whitelisted namespace patterns | `default,kube-system` |
 | `tenant_label` | Label key used to identify tenant membership | `capsule.clastix.io/tenant` |
+| `cluster_domain` | DNS domain for the Kubernetes cluster | `cluster.local` |
 
 ## Isolation Modes
 
@@ -46,6 +47,7 @@ In namespace mode, pods can resolve DNS names for:
         isolation_mode tenant
         whitelist default kube-system kube-public
         tenant_label capsule.clastix.io/tenant
+        cluster_domain cluster.local
     }
     kubernetes cluster.local in-addr.arpa ip6.arpa {
         pods insecure

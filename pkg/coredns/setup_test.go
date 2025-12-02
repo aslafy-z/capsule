@@ -89,6 +89,7 @@ func TestParseConfig(t *testing.T) {
 				"isolation_mode":   "namespace",
 				"whitelist":        "default,kube-*",
 				"tenant_label_key": "example.com/tenant",
+				"cluster_domain":   "my.cluster.local",
 			},
 			expectedMode:  IsolationModeNamespace,
 			expectedNs:    []string{"default", "kube-*"},
@@ -180,6 +181,7 @@ func TestConfigValidate(t *testing.T) {
 				IsolationMode:         IsolationModeNamespace,
 				WhitelistedNamespaces: []string{},
 				TenantLabelKey:        "test/label",
+				ClusterDomain:         "cluster.local",
 			},
 			expectError: false,
 		},
@@ -188,6 +190,7 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				IsolationMode:  "invalid",
 				TenantLabelKey: "test/label",
+				ClusterDomain:  "cluster.local",
 			},
 			expectError: true,
 		},
@@ -196,6 +199,26 @@ func TestConfigValidate(t *testing.T) {
 			config: &Config{
 				IsolationMode:  IsolationModeTenant,
 				TenantLabelKey: "",
+				ClusterDomain:  "cluster.local",
+			},
+			expectError: true,
+		},
+		{
+			name: "empty cluster domain",
+			config: &Config{
+				IsolationMode:  IsolationModeTenant,
+				TenantLabelKey: "test/label",
+				ClusterDomain:  "",
+			},
+			expectError: true,
+		},
+		{
+			name: "invalid whitelist pattern",
+			config: &Config{
+				IsolationMode:         IsolationModeTenant,
+				TenantLabelKey:        "test/label",
+				ClusterDomain:         "cluster.local",
+				WhitelistedNamespaces: []string{"[invalid"},
 			},
 			expectError: true,
 		},

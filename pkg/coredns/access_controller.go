@@ -4,6 +4,7 @@
 package coredns
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -83,7 +84,14 @@ func (ac *AccessController) checkTenantIsolation(ctx *RequestContext) (bool, err
 // isNamespaceWhitelisted checks if the namespace matches any whitelist pattern.
 func (ac *AccessController) isNamespaceWhitelisted(namespace string) bool {
 	for _, pattern := range ac.config.WhitelistedNamespaces {
-		if matchPattern(pattern, namespace) {
+		matched, err := matchPattern(pattern, namespace)
+		if err != nil {
+			// Pattern is invalid - log would be useful here but skip for now
+			// In production, invalid patterns should be caught at config validation
+			continue
+		}
+
+		if matched {
 			return true
 		}
 	}
@@ -93,15 +101,15 @@ func (ac *AccessController) isNamespaceWhitelisted(namespace string) bool {
 
 // matchPattern checks if a string matches a glob-like pattern.
 // Supports * as a wildcard for any characters.
-func matchPattern(pattern, value string) bool {
+// Returns an error if the pattern is invalid.
+func matchPattern(pattern, value string) (bool, error) {
 	// Use filepath.Match for glob pattern matching
 	matched, err := filepath.Match(pattern, value)
 	if err != nil {
-		// If pattern is invalid, try exact match
-		return pattern == value
+		return false, fmt.Errorf("invalid pattern %q: %w", pattern, err)
 	}
 
-	return matched
+	return matched, nil
 }
 
 // ParseDNSQuery extracts namespace and service information from a Kubernetes DNS query.

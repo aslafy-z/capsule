@@ -367,17 +367,19 @@ func TestMatchPattern(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		pattern  string
-		value    string
-		expected bool
+		pattern     string
+		value       string
+		expected    bool
+		expectError bool
 	}{
-		{"kube-system", "kube-system", true},
-		{"kube-*", "kube-system", true},
-		{"kube-*", "kube-public", true},
-		{"kube-*", "default", false},
-		{"*-system", "kube-system", true},
-		{"*", "anything", true},
-		{"exact", "notexact", false},
+		{"kube-system", "kube-system", true, false},
+		{"kube-*", "kube-system", true, false},
+		{"kube-*", "kube-public", true, false},
+		{"kube-*", "default", false, false},
+		{"*-system", "kube-system", true, false},
+		{"*", "anything", true, false},
+		{"exact", "notexact", false, false},
+		{"[invalid", "test", false, true}, // Invalid pattern
 	}
 
 	for _, tc := range tests {
@@ -385,7 +387,21 @@ func TestMatchPattern(t *testing.T) {
 		t.Run(tc.pattern+"_"+tc.value, func(t *testing.T) {
 			t.Parallel()
 
-			result := matchPattern(tc.pattern, tc.value)
+			result, err := matchPattern(tc.pattern, tc.value)
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("expected error for pattern %q, got nil", tc.pattern)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+
+				return
+			}
+
 			if result != tc.expected {
 				t.Errorf("matchPattern(%q, %q) = %v, expected %v", tc.pattern, tc.value, result, tc.expected)
 			}
@@ -420,6 +436,7 @@ func TestPlugin_ServeDNS(t *testing.T) {
 		IsolationMode:         IsolationModeTenant,
 		WhitelistedNamespaces: []string{"default"},
 		TenantLabelKey:        "capsule.clastix.io/tenant",
+		ClusterDomain:         "cluster.local",
 	}
 
 	tests := []struct {

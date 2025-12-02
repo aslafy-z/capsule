@@ -25,6 +25,10 @@ type Config struct {
 	// TenantLabelKey is the label key used to identify tenant membership.
 	// Defaults to "capsule.clastix.io/tenant".
 	TenantLabelKey string
+
+	// ClusterDomain is the DNS domain for the Kubernetes cluster.
+	// Defaults to "cluster.local".
+	ClusterDomain string
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -33,6 +37,7 @@ func DefaultConfig() *Config {
 		IsolationMode:         IsolationModeTenant,
 		WhitelistedNamespaces: []string{"default", "kube-system"},
 		TenantLabelKey:        "capsule.clastix.io/tenant",
+		ClusterDomain:         "cluster.local",
 	}
 }
 
