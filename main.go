@@ -45,6 +45,7 @@ import (
 	"github.com/clastix/capsule/pkg/webhook/networkpolicy"
 	"github.com/clastix/capsule/pkg/webhook/node"
 	"github.com/clastix/capsule/pkg/webhook/ownerreference"
+	"github.com/clastix/capsule/pkg/webhook/plugin"
 	"github.com/clastix/capsule/pkg/webhook/pod"
 	"github.com/clastix/capsule/pkg/webhook/pvc"
 	"github.com/clastix/capsule/pkg/webhook/route"
@@ -248,6 +249,7 @@ func main() {
 		route.Cordoning(tenant.CordoningHandler(cfg), tenant.ResourceCounterHandler()),
 		route.Node(utils.InCapsuleGroups(cfg, node.UserMetadataHandler(cfg, kubeVersion))),
 		route.Defaults(defaults.Handler(cfg, kubeVersion)),
+		route.Plugin(plugin.ResourceEnforcement()),
 	)
 
 	nodeWebhookSupported, _ := utils.NodeWebhookSupported(kubeVersion)

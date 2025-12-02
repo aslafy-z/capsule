@@ -52,6 +52,11 @@ type TenantSpec struct {
 	// Prevent accidental deletion of the Tenant.
 	// When enabled, the deletion request will be declined.
 	PreventDeletion bool `json:"preventDeletion,omitempty"`
+	// Specifies resource enforcement configuration for the Tenant.
+	// This allows defining required labels/annotations that must be present on resources
+	// and default labels/annotations that will be applied to resources if not already present.
+	// Optional.
+	ResourceEnforcement *api.ResourceEnforcementSpec `json:"resourceEnforcement,omitempty"`
 }
 
 // +kubebuilder:object:root=true
