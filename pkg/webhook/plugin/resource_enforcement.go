@@ -171,7 +171,7 @@ func applyDefaultAnnotations(pod *corev1.Pod, defaults map[string]string) bool {
 	return modified
 }
 
-// Enforcement returns a new ResourceEnforcementSpec from the given Tenant.
+// Enforcement returns the ResourceEnforcementSpec from the given Tenant.
 func Enforcement(tnt *capsulev1beta2.Tenant) *api.ResourceEnforcementSpec {
 	return tnt.Spec.ResourceEnforcement
 }
