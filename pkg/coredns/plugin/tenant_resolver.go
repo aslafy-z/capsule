@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -43,11 +44,14 @@ type KubernetesTenantResolver struct {
 	// cache stores namespace-to-tenant mappings.
 	cache sync.Map
 
+	// mu protects client initialization.
+	mu sync.Mutex
+
 	// client is the Kubernetes client used for API calls.
 	client kubernetes.Interface
 
-	// clientOnce ensures the client is initialized only once.
-	clientOnce sync.Once
+	// clientInitialized indicates if the client has been initialized.
+	clientInitialized bool
 
 	// clientErr stores any error from client initialization.
 	clientErr error
@@ -61,25 +65,32 @@ type cacheEntry struct {
 
 // initClient initializes the Kubernetes client.
 func (r *KubernetesTenantResolver) initClient() error {
-	r.clientOnce.Do(func() {
-		var config *rest.Config
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-		// Try in-cluster config first (when running inside a pod)
-		config, r.clientErr = rest.InClusterConfig()
-		if r.clientErr != nil {
-			// Fall back to kubeconfig file
-			kubeconfig := os.Getenv("KUBECONFIG")
-			if kubeconfig == "" {
-				kubeconfig = os.Getenv("HOME") + "/.kube/config"
-			}
-			config, r.clientErr = clientcmd.BuildConfigFromFlags("", kubeconfig)
-			if r.clientErr != nil {
-				return
-			}
+	// Check if already initialized
+	if r.clientInitialized {
+		return r.clientErr
+	}
+
+	var config *rest.Config
+
+	// Try in-cluster config first (when running inside a pod)
+	config, r.clientErr = rest.InClusterConfig()
+	if r.clientErr != nil {
+		// Fall back to kubeconfig file
+		kubeconfig := os.Getenv("KUBECONFIG")
+		if kubeconfig == "" {
+			kubeconfig = os.Getenv("HOME") + "/.kube/config"
 		}
+		config, r.clientErr = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if r.clientErr != nil {
+			return r.clientErr
+		}
+	}
 
-		r.client, r.clientErr = kubernetes.NewForConfig(config)
-	})
+	r.client, r.clientErr = kubernetes.NewForConfig(config)
+	r.clientInitialized = true
 
 	return r.clientErr
 }
@@ -106,13 +117,19 @@ func (r *KubernetesTenantResolver) GetTenantForNamespace(ctx context.Context, na
 	// Query Kubernetes API for namespace
 	ns, err := r.client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
-		// If namespace not found, cache empty result
-		r.cache.Store(namespace, &cacheEntry{
-			tenant: "",
-			expiry: time.Now().Add(time.Duration(r.TTL) * time.Second),
-		})
+		// Only cache empty result for NotFound errors
+		// Other errors (network, permissions) should not be cached
+		if k8serrors.IsNotFound(err) {
+			r.cache.Store(namespace, &cacheEntry{
+				tenant: "",
+				expiry: time.Now().Add(time.Duration(r.TTL) * time.Second),
+			})
 
-		return "", nil
+			return "", nil
+		}
+
+		// Return error for temporary failures
+		return "", err
 	}
 
 	// Extract tenant from labels
@@ -137,9 +154,12 @@ func (r *KubernetesTenantResolver) getTenantFromNamespace(ns *corev1.Namespace) 
 }
 
 // SetClient sets a custom Kubernetes client (useful for testing).
+// This method should only be called before any GetTenantForNamespace calls.
 func (r *KubernetesTenantResolver) SetClient(client kubernetes.Interface) {
-	r.clientOnce.Do(func() {})
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.client = client
+	r.clientInitialized = true
 	r.clientErr = nil
 }
 
