@@ -47,7 +47,9 @@ func (c Capsule) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg)
 	// Extract the target namespace from the DNS query
 	targetNamespace := c.extractTargetNamespace(state.QName())
 
-	// If target namespace couldn't be determined, pass to next plugin
+	// If target namespace couldn't be determined (external DNS or non-Kubernetes query),
+	// pass to next plugin. This is intentional - the plugin only enforces isolation
+	// for Kubernetes internal DNS (services/pods within the cluster domain).
 	if targetNamespace == "" {
 		return plugin.NextOrFailure(c.Name(), c.Next, ctx, w, r)
 	}

@@ -25,6 +25,10 @@ type TenantResolverInterface interface {
 }
 
 // KubernetesTenantResolver implements TenantResolverInterface using Kubernetes API.
+// Note: The current implementation is a stub that returns empty tenant for all namespaces.
+// In production, this should be extended to query the Kubernetes API to retrieve
+// namespace labels and extract the tenant information based on TenantLabel.
+// Users can either provide their own implementation or integrate with the Capsule operator.
 type KubernetesTenantResolver struct {
 	// TenantLabel is the label used to identify tenant namespaces.
 	TenantLabel string
@@ -34,9 +38,6 @@ type KubernetesTenantResolver struct {
 
 	// cache stores namespace-to-tenant mappings.
 	cache sync.Map
-
-	// cacheExpiry stores expiry times for cache entries.
-	cacheExpiry sync.Map
 }
 
 // cacheEntry represents a cached tenant lookup result.
@@ -57,11 +58,8 @@ func (r *KubernetesTenantResolver) GetTenantForNamespace(ctx context.Context, na
 		r.cache.Delete(namespace)
 	}
 
-	// In a real implementation, this would query the Kubernetes API
-	// to get the namespace labels and extract the tenant information.
-	// For now, we return an empty string indicating no tenant found.
-	// The actual implementation should be provided by users or
-	// by integrating with the Capsule operator.
+	// TODO: In production, implement Kubernetes API call to get namespace labels.
+	// This stub returns empty tenant. Users should extend this or use StaticTenantResolver.
 	tenant := ""
 
 	// Store in cache
