@@ -5,8 +5,15 @@ package plugin
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 const (
@@ -25,10 +32,7 @@ type TenantResolverInterface interface {
 }
 
 // KubernetesTenantResolver implements TenantResolverInterface using Kubernetes API.
-// Note: The current implementation is a stub that returns empty tenant for all namespaces.
-// In production, this should be extended to query the Kubernetes API to retrieve
-// namespace labels and extract the tenant information based on TenantLabel.
-// Users can either provide their own implementation or integrate with the Capsule operator.
+// It queries namespace labels to extract tenant information based on the configured TenantLabel.
 type KubernetesTenantResolver struct {
 	// TenantLabel is the label used to identify tenant namespaces.
 	TenantLabel string
@@ -38,6 +42,15 @@ type KubernetesTenantResolver struct {
 
 	// cache stores namespace-to-tenant mappings.
 	cache sync.Map
+
+	// client is the Kubernetes client used for API calls.
+	client kubernetes.Interface
+
+	// clientOnce ensures the client is initialized only once.
+	clientOnce sync.Once
+
+	// clientErr stores any error from client initialization.
+	clientErr error
 }
 
 // cacheEntry represents a cached tenant lookup result.
@@ -46,7 +59,34 @@ type cacheEntry struct {
 	expiry time.Time
 }
 
+// initClient initializes the Kubernetes client.
+func (r *KubernetesTenantResolver) initClient() error {
+	r.clientOnce.Do(func() {
+		var config *rest.Config
+
+		// Try in-cluster config first (when running inside a pod)
+		config, r.clientErr = rest.InClusterConfig()
+		if r.clientErr != nil {
+			// Fall back to kubeconfig file
+			kubeconfig := os.Getenv("KUBECONFIG")
+			if kubeconfig == "" {
+				kubeconfig = os.Getenv("HOME") + "/.kube/config"
+			}
+			config, r.clientErr = clientcmd.BuildConfigFromFlags("", kubeconfig)
+			if r.clientErr != nil {
+				return
+			}
+		}
+
+		r.client, r.clientErr = kubernetes.NewForConfig(config)
+	})
+
+	return r.clientErr
+}
+
 // GetTenantForNamespace returns the tenant name for a given namespace.
+// It queries the Kubernetes API to get the namespace labels and extracts
+// the tenant information based on the configured TenantLabel.
 func (r *KubernetesTenantResolver) GetTenantForNamespace(ctx context.Context, namespace string) (string, error) {
 	// Check cache first
 	if entry, ok := r.cache.Load(namespace); ok {
@@ -58,9 +98,25 @@ func (r *KubernetesTenantResolver) GetTenantForNamespace(ctx context.Context, na
 		r.cache.Delete(namespace)
 	}
 
-	// TODO: In production, implement Kubernetes API call to get namespace labels.
-	// This stub returns empty tenant. Users should extend this or use StaticTenantResolver.
-	tenant := ""
+	// Initialize client if needed
+	if err := r.initClient(); err != nil {
+		return "", err
+	}
+
+	// Query Kubernetes API for namespace
+	ns, err := r.client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		// If namespace not found, cache empty result
+		r.cache.Store(namespace, &cacheEntry{
+			tenant: "",
+			expiry: time.Now().Add(time.Duration(r.TTL) * time.Second),
+		})
+
+		return "", nil
+	}
+
+	// Extract tenant from labels
+	tenant := r.getTenantFromNamespace(ns)
 
 	// Store in cache
 	r.cache.Store(namespace, &cacheEntry{
@@ -69,6 +125,22 @@ func (r *KubernetesTenantResolver) GetTenantForNamespace(ctx context.Context, na
 	})
 
 	return tenant, nil
+}
+
+// getTenantFromNamespace extracts the tenant name from namespace labels.
+func (r *KubernetesTenantResolver) getTenantFromNamespace(ns *corev1.Namespace) string {
+	if ns.Labels == nil {
+		return ""
+	}
+
+	return ns.Labels[r.TenantLabel]
+}
+
+// SetClient sets a custom Kubernetes client (useful for testing).
+func (r *KubernetesTenantResolver) SetClient(client kubernetes.Interface) {
+	r.clientOnce.Do(func() {})
+	r.client = client
+	r.clientErr = nil
 }
 
 // StaticTenantResolver implements TenantResolverInterface using a static mapping.

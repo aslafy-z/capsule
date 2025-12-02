@@ -10,6 +10,25 @@ This plugin allows you to control DNS resolution within a Kubernetes cluster bas
 - **Namespace Isolation**: DNS resolution is allowed only within the same namespace
 - **Whitelisting**: Specific namespaces (e.g., `default`, `kube-system`) can be whitelisted to allow cross-tenant/namespace resolution
 
+## How It Works
+
+The plugin integrates directly with Capsule by:
+
+1. Querying the Kubernetes API to retrieve namespace labels
+2. Extracting the tenant name from the `capsule.clastix.io/tenant` label (configurable)
+3. Caching tenant lookups to minimize API calls
+4. Enforcing DNS isolation based on tenant/namespace boundaries
+
+When a DNS query is received:
+1. The plugin extracts the source namespace and tenant from request metadata
+2. It parses the target namespace from the DNS query (e.g., `my-service.target-namespace.svc.cluster.local`)
+3. It checks if resolution is allowed:
+   - If the target namespace is whitelisted → allow
+   - If source and target are the same namespace → allow
+   - In `namespace` mode → block cross-namespace resolution
+   - In `tenant` mode → allow only if both namespaces belong to the same tenant (via API lookup)
+4. If blocked, return NXDOMAIN; otherwise, pass to the next plugin
+
 ## Syntax
 
 ```
@@ -40,6 +59,7 @@ capsule [ISOLATION_MODE] {
     capsule {
         isolation tenant
         whitelist default kube-system
+        kubernetes
     }
     kubernetes cluster.local in-addr.arpa ip6.arpa {
         pods insecure
@@ -69,7 +89,7 @@ capsule [ISOLATION_MODE] {
 }
 ```
 
-### Full Configuration with Kubernetes Resolver
+### Full Configuration with Custom Tenant Label
 
 ```
 .:53 {
@@ -94,23 +114,39 @@ capsule [ISOLATION_MODE] {
 }
 ```
 
-## How It Works
+## Capsule Integration
 
-1. The plugin intercepts DNS queries before they reach the Kubernetes plugin
-2. It extracts the source namespace and tenant from request metadata (provided by the metadata plugin)
-3. It parses the target namespace from the DNS query (e.g., `my-service.target-namespace.svc.cluster.local`)
-4. It checks if the resolution is allowed based on the configured isolation mode:
-   - If the target namespace is whitelisted, allow
-   - If source and target are the same namespace, allow
-   - In `namespace` mode, block cross-namespace resolution
-   - In `tenant` mode, allow only if both namespaces belong to the same tenant
-5. If blocked, return NXDOMAIN; otherwise, pass to the next plugin
+This plugin is designed to work seamlessly with Capsule. When Capsule creates a namespace for a tenant, it automatically labels the namespace with `capsule.clastix.io/tenant=<tenant-name>`. The plugin queries these labels via the Kubernetes API to determine which tenant a namespace belongs to.
 
-## Requirements
+### Prerequisites
 
-- This plugin should be chained before the `kubernetes` plugin in your Corefile
-- The `metadata` plugin should be configured to provide source namespace/tenant information
-- For tenant isolation mode, namespaces should be labeled with the tenant label (default: `capsule.clastix.io/tenant`)
+1. Capsule must be installed and configured in your cluster
+2. Namespaces should be created through Capsule (so they get the tenant label)
+3. CoreDNS must have RBAC permissions to read namespaces:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: coredns-capsule
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: coredns-capsule
+subjects:
+- kind: ServiceAccount
+  name: coredns
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: coredns-capsule
+  apiGroup: rbac.authorization.k8s.io
+```
 
 ## Building
 

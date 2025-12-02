@@ -11,6 +11,9 @@ import (
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/miekg/dns"
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestCapsule_Name(t *testing.T) {
@@ -301,4 +304,118 @@ func TestStaticTenantResolver_NilMapping(t *testing.T) {
 	result, err := resolver.GetTenantForNamespace(context.Background(), "any-namespace")
 	assert.NoError(t, err)
 	assert.Equal(t, "", result)
+}
+
+func TestKubernetesTenantResolver_GetTenantForNamespace(t *testing.T) {
+	// Create a fake clientset with test namespaces
+	resolver := &KubernetesTenantResolver{
+		TenantLabel: DefaultTenantLabel,
+		TTL:         30,
+	}
+
+	// Create fake client with test data
+	fakeClient := fake.NewSimpleClientset(
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "tenant-a-ns1",
+				Labels: map[string]string{
+					DefaultTenantLabel: "tenant-a",
+				},
+			},
+		},
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "tenant-a-ns2",
+				Labels: map[string]string{
+					DefaultTenantLabel: "tenant-a",
+				},
+			},
+		},
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "tenant-b-ns1",
+				Labels: map[string]string{
+					DefaultTenantLabel: "tenant-b",
+				},
+			},
+		},
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "no-tenant-ns",
+				Labels: map[string]string{},
+			},
+		},
+	)
+	resolver.SetClient(fakeClient)
+
+	tests := []struct {
+		name           string
+		namespace      string
+		expectedTenant string
+	}{
+		{
+			name:           "namespace in tenant-a",
+			namespace:      "tenant-a-ns1",
+			expectedTenant: "tenant-a",
+		},
+		{
+			name:           "another namespace in tenant-a",
+			namespace:      "tenant-a-ns2",
+			expectedTenant: "tenant-a",
+		},
+		{
+			name:           "namespace in tenant-b",
+			namespace:      "tenant-b-ns1",
+			expectedTenant: "tenant-b",
+		},
+		{
+			name:           "namespace without tenant label",
+			namespace:      "no-tenant-ns",
+			expectedTenant: "",
+		},
+		{
+			name:           "non-existent namespace",
+			namespace:      "non-existent",
+			expectedTenant: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tenant, err := resolver.GetTenantForNamespace(context.Background(), tt.namespace)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedTenant, tenant)
+		})
+	}
+}
+
+func TestKubernetesTenantResolver_Caching(t *testing.T) {
+	// Create a resolver with a short TTL
+	resolver := &KubernetesTenantResolver{
+		TenantLabel: DefaultTenantLabel,
+		TTL:         1, // 1 second TTL for testing
+	}
+
+	// Create fake client
+	fakeClient := fake.NewSimpleClientset(
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "cached-ns",
+				Labels: map[string]string{
+					DefaultTenantLabel: "cached-tenant",
+				},
+			},
+		},
+	)
+	resolver.SetClient(fakeClient)
+
+	// First call should query and cache
+	tenant1, err := resolver.GetTenantForNamespace(context.Background(), "cached-ns")
+	assert.NoError(t, err)
+	assert.Equal(t, "cached-tenant", tenant1)
+
+	// Second call should return from cache (even if we update the namespace)
+	tenant2, err := resolver.GetTenantForNamespace(context.Background(), "cached-ns")
+	assert.NoError(t, err)
+	assert.Equal(t, "cached-tenant", tenant2)
 }
